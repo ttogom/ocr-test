@@ -1,10 +1,10 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../services/ocr_bridge.dart';
 import '../services/receipt_parser.dart';
+import '../widgets/document_overlay.dart';
 import 'result_page.dart';
-import 'debug_page.dart';
 
 class CameraPage extends StatefulWidget {
   const CameraPage({super.key});
@@ -17,6 +17,9 @@ class _CameraPageState extends State<CameraPage> {
   CameraController? _controller;
   bool _isProcessing = false;
   String? _errorMessage;
+  DocumentCorners? _documentCorners;
+  bool _isDetecting = false;
+  int _noDocumentCount = 0;
 
   final _ocrBridge = OcrBridge();
   final _parser = ReceiptParser();
@@ -40,12 +43,56 @@ class _CameraPageState extends State<CameraPage> {
         camera,
         ResolutionPreset.high,
         enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
       await _controller!.initialize();
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _startDocumentDetection();
+      }
     } catch (e) {
       setState(() => _errorMessage = 'Camera error: $e');
+    }
+  }
+
+  void _startDocumentDetection() {
+    _controller?.startImageStream((CameraImage image) {
+      if (_isDetecting || _isProcessing) return;
+
+      _isDetecting = true;
+      _processFrame(image).then((_) {
+        _isDetecting = false;
+      });
+    });
+  }
+
+  Future<void> _processFrame(CameraImage image) async {
+    try {
+      // Use the Y plane (luminance) — grayscale is enough for document detection
+      final yPlane = image.planes[0];
+
+      final corners = await _ocrBridge.detectDocument(
+        bytes: yPlane.bytes,
+        width: image.width,
+        height: image.height,
+        bytesPerRow: yPlane.bytesPerRow,
+      );
+
+      if (mounted) {
+        if (corners != null) {
+          _noDocumentCount = 0;
+          setState(() => _documentCorners = corners);
+        } else {
+          _noDocumentCount++;
+          // Only clear after 3 consecutive misses to avoid flicker
+          if (_noDocumentCount >= 3 && _documentCorners != null) {
+            setState(() => _documentCorners = null);
+          }
+        }
+      }
+    } catch (_) {
+      // Silently ignore detection errors on individual frames
     }
   }
 
@@ -55,6 +102,9 @@ class _CameraPageState extends State<CameraPage> {
     setState(() => _isProcessing = true);
 
     try {
+      // Stop the image stream before taking a picture
+      await _controller!.stopImageStream();
+
       final xFile = await _controller!.takePicture();
       final imagePath = xFile.path;
 
@@ -63,7 +113,7 @@ class _CameraPageState extends State<CameraPage> {
 
       if (!mounted) return;
 
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ResultPage(
@@ -73,11 +123,18 @@ class _CameraPageState extends State<CameraPage> {
           ),
         ),
       );
+
+      // Restart detection after returning from result page
+      if (mounted) {
+        _startDocumentDetection();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('OCR failed: $e'), backgroundColor: Colors.red),
         );
+        // Restart detection on error
+        _startDocumentDetection();
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -126,6 +183,12 @@ class _CameraPageState extends State<CameraPage> {
         Positioned.fill(
           child: CameraPreview(_controller!),
         ),
+        if (_documentCorners != null && !_isProcessing)
+          Positioned.fill(
+            child: CustomPaint(
+              painter: DocumentOverlay(corners: _documentCorners!),
+            ),
+          ),
         if (_isProcessing)
           Container(
             color: Colors.black54,
