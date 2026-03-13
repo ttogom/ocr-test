@@ -9,7 +9,14 @@ Capture a receipt photo, extract line items with prices, tax, tip, and total, an
 ### Processing Pipeline
 
 ```
-Camera Capture
+Camera Preview
+      |
+      |  Live document detection runs on each frame
+      |  (VNDetectDocumentSegmentationRequest on Y plane)
+      |  Corner brackets shown when confidence > 0.85
+      |
+      v
+Camera Capture (user taps shutter)
       |
       v
 +-----------------------------+
@@ -47,7 +54,7 @@ Camera Capture
 The app uses a Flutter `MethodChannel` to communicate between Dart and native Swift code.
 
 **Channel:** `com.ocrtest/vision_ocr`
-**Method:** `processReceipt`
+**Methods:** `detectDocument`, `processReceipt`
 
 Dart sends an image path to Swift:
 ```dart
@@ -78,13 +85,16 @@ Swift runs the Vision pipeline and returns structured data:
 
 All coordinates are normalized (0-1) with a top-left origin. The Y-axis is flipped on the Swift side since Vision uses a bottom-left origin.
 
-The bridge is registered in `AppDelegate.swift` and orchestrates three steps: document segmentation, image enhancement, and OCR. Each step gracefully falls back if it fails (e.g., no document detected skips cropping, enhancement failure uses the original image).
+The bridge is registered in `AppDelegate.swift` and handles two methods:
+
+- **`detectDocument`** — Receives raw camera frame bytes (Y plane), creates a pixel buffer, runs `VNDetectDocumentSegmentationRequest`, and returns 4 corner points if a document is detected with high confidence (>0.85). Used for the live preview overlay.
+- **`processReceipt`** — Orchestrates three steps: document segmentation, image enhancement, and OCR. Each step gracefully falls back if it fails (e.g., no document detected skips cropping, enhancement failure uses the original image).
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `ios/Runner/AppDelegate.swift` | Registers MethodChannel, orchestrates the pipeline |
+| `ios/Runner/AppDelegate.swift` | Registers MethodChannel, handles live detection + OCR pipeline |
 | `ios/Runner/OcrPlugin/VisionOcrHandler.swift` | Runs VNRecognizeTextRequest, CIDocumentEnhancer |
 | `ios/Runner/OcrPlugin/DocumentSegmenter.swift` | Detects document boundaries, applies perspective correction |
 | `lib/services/ocr_bridge.dart` | Dart side of the MethodChannel |
