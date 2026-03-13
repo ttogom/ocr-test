@@ -1,0 +1,24 @@
+# Ignore everything
+*
+
+# Allow .gitignore itself
+!.gitignore
+
+# Dart/Flutter source & config
+!lib/
+!lib/**
+!test/
+!test/**
+!pubspec.yaml
+!pubspec.lock
+!analysis_options.yaml
+
+# iOS — only Swift source and essential config
+!ios/
+!ios/Podfile
+!ios/Runner/
+!ios/Runner/AppDelegate.swift
+!ios/Runner/Info.plist
+!ios/Runner/Runner-Bridging-Header.h
+!ios/Runner/OcrPlugin/
+!ios/Runner/OcrPlugin/**
