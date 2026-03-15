@@ -41,7 +41,7 @@ class _CameraPageState extends State<CameraPage> {
       final camera = cameras.first;
       _controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.max,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
